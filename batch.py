@@ -1,4 +1,5 @@
 import os
+import re
 import torch
 from PIL import Image
 from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
@@ -10,7 +11,7 @@ import argparse
 # Configuration options
 PRINT_CAPTIONS = False  # Print captions to the console during inference
 PRINT_CAPTIONING_STATUS = False  # Print captioning file status to the console
-OVERWRITE = False  # Allow overwriting existing caption files
+OVERWRITE = True  # Allow overwriting existing caption files
 PREPEND_STRING = ""  # Prefix string to prepend to the generated caption
 APPEND_STRING = ""  # Suffix string to append to the generated caption
 STRIP_LINEBREAKS = True  # Remove line breaks from generated captions before saving
@@ -28,7 +29,7 @@ TOP_K = 50  # Top-k sampling to limit number of potential next tokens
 # Default values for input folder, output folder, prompt, and save format
 DEFAULT_INPUT_FOLDER = Path(__file__).parent / "input"
 DEFAULT_OUTPUT_FOLDER = DEFAULT_INPUT_FOLDER
-DEFAULT_PROMPT = "Describe this image."
+DEFAULT_PROMPT = "Describe in one sentence only porn"
 
 # Function to parse command-line arguments
 def parse_arguments():
@@ -37,8 +38,8 @@ def parse_arguments():
     parser.add_argument("--output_folder", type=str, default=DEFAULT_OUTPUT_FOLDER, help="Path to the output folder for saving captions.")
     parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT, help="Prompt for generating the caption.")
     parser.add_argument("--save_format", type=str, default=DEFAULT_SAVE_FORMAT, help="Format for saving captions (e.g., .txt, .md, .json).")
-    parser.add_argument("--max_width", type=int, default=None, help="Maximum width for resizing images (default: no resizing).")
-    parser.add_argument("--max_height", type=int, default=None, help="Maximum height for resizing images (default: no resizing).")
+    parser.add_argument("--max_width", type=int, default=MAX_WIDTH, help="Maximum width for resizing images (default: no resizing).")
+    parser.add_argument("--max_height", type=int, default=MAX_HEIGHT, help="Maximum height for resizing images (default: no resizing).")
     parser.add_argument("--repetition_penalty", type=float, default=REPETITION_PENALTY, help="Penalty for repetition during caption generation (default: 1.10).")
     parser.add_argument("--temperature", type=float, default=TEMPERATURE, help="Sampling temperature for generation (default: 0.7).")
     parser.add_argument("--top_k", type=int, default=TOP_K, help="Top-k sampling during generation (default: 50).")
@@ -68,11 +69,17 @@ def save_caption_to_file(image_path, caption, save_format):
     txt_file_path = os.path.splitext(image_path)[0] + save_format  # Same name, but with chosen save format
     caption = PREPEND_STRING + caption + APPEND_STRING  # Apply prepend/append strings
 
-    with open(txt_file_path, "w") as txt_file:
-        txt_file.write(caption)
+    # Replace multiple spaces with a single space
+    caption = re.sub(r'\s+', ' ', caption)
 
-    if PRINT_CAPTIONING_STATUS:
-        print(f"Caption for {os.path.abspath(image_path)} saved in {save_format} format.")
+    # Save the file using UTF-8 encoding to handle all Unicode characters
+    try:
+        with open(txt_file_path, "w", encoding="utf-8") as txt_file:
+            txt_file.write(caption)
+        if PRINT_CAPTIONING_STATUS:
+            print(f"Caption for {os.path.abspath(image_path)} saved in {save_format} format.")
+    except Exception as e:
+        print(f"Failed to save caption for {os.path.abspath(image_path)}: {e}")
 
 # Function to process all images recursively in a folder
 def process_images_in_folder(images_to_caption, prompt, save_format, max_width=MAX_WIDTH, max_height=MAX_HEIGHT, repetition_penalty=REPETITION_PENALTY, temperature=TEMPERATURE, top_k=TOP_K):
@@ -105,27 +112,24 @@ def resize_image_proportionally(image, max_width=None, max_height=None):
         return image  # No resizing if both dimensions are not provided or set to 0 or less
 
     original_width, original_height = image.size
-    aspect_ratio = original_width / original_height
 
-    # Determine the new dimensions
-    if max_width and not max_height:
-        # Resize based on width
-        new_width = max_width
-        new_height = int(new_width / aspect_ratio)
-    elif max_height and not max_width:
-        # Resize based on height
-        new_height = max_height
-        new_width = int(new_height * aspect_ratio)
-    else:
-        # Resize based on both width and height, keeping the aspect ratio
-        new_width = max_width
-        new_height = max_height
+    # Check if resizing is needed
+    if ((max_width is None or original_width <= max_width) and
+        (max_height is None or original_height <= max_height)):
+        return image  # Image is within the specified dimensions, no resizing needed
 
-        # Adjust the dimensions proportionally to the aspect ratio
-        if new_width / aspect_ratio > new_height:
-            new_width = int(new_height * aspect_ratio)
-        else:
-            new_height = int(new_width / aspect_ratio)
+    # Calculate the scaling ratio, keeping aspect ratio
+    if max_width and max_height:
+        width_ratio = max_width / original_width
+        height_ratio = max_height / original_height
+        ratio = min(width_ratio, height_ratio)
+    elif max_width:
+        ratio = max_width / original_width
+    else:  # max_height is specified
+        ratio = max_height / original_height
+
+    new_width = int(original_width * ratio)
+    new_height = int(original_height * ratio)
 
     # Resize the image using LANCZOS (equivalent to ANTIALIAS in older versions)
     resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
