@@ -29,7 +29,7 @@ TOP_K = 50  # Top-k sampling to limit number of potential next tokens
 # Default values for input folder, output folder, prompt, and save format
 DEFAULT_INPUT_FOLDER = Path(__file__).parent / "input"
 DEFAULT_OUTPUT_FOLDER = DEFAULT_INPUT_FOLDER
-DEFAULT_PROMPT = "Describe in one sentence only porn"
+DEFAULT_PROMPT = "Describe in one sentence"
 
 # Function to parse command-line arguments
 def parse_arguments():
